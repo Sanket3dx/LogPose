@@ -2,6 +2,9 @@
 
 LogPose is a high-performance service discovery system for microservices running across any network topology—cloud, on-prem, hybrid, or edge. Written in Rust for speed, safety, and predictability, LogPose provides a single source of truth for service presence, health, and reachability.
 
+> [!NOTE]
+> **Origin of the Name**: The name **LogPose** is inspired by the navigational device from the legendary series **One Piece**. Just like the Log Pose in the Grand Line, this system is designed to provide steady, reliable navigation in a complex and unpredictable environment. 🏴‍☠️
+
 ## Project Structure
 
 LogPose is organized as a modular Rust workspace, ensuring separation of concerns and production readiness.

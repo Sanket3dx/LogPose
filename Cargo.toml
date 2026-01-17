@@ -1,3 +1,3 @@
 [workspace]
-members = [ "crates/logpose-agent","crates/logpose-core", "crates/logpose-db", "crates/logpose-server", "crates/logpose-wire"]
+members = [ "crates/logpose-agent","crates/logpose-core", "crates/logpose-db", "crates/logpose-server", "crates/logpose-command"]
 resolver = "2"

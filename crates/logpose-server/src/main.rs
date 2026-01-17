@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
-use logpose_core::{Identity, Role, Permission, Claims, RegistryStore, HealthStatus};
+use logpose_core::{Identity, Role, Permission, Claims, RegistryStore, HealthStatus, ServiceInstance};
 use logpose_db::DbRegistry;
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
@@ -30,7 +30,10 @@ struct AppState {
         register_service,
         discover_service,
         list_instances,
+        register_instance,
         update_health,
+        register_identity,
+        assign_role,
         health_check,
     ),
     components(
@@ -38,7 +41,10 @@ struct AppState {
             AuthRequest, 
             AuthResponse, 
             RegisterServiceRequest, 
+            RegisterInstanceRequest,
             HealthUpdate,
+            RegisterIdentityRequest,
+            AssignRoleRequest,
             logpose_core::auth::Role,
             logpose_core::instance::ServiceInstance,
             logpose_core::protocol::Protocol,
@@ -125,22 +131,23 @@ async fn main() {
         .route("/api/auth/token", post(get_token))
         .route("/api/services", get(list_services))
         .route("/api/services", post(register_service))
-        .route("/api/discover/:code", get(discover_service))
         .route("/api/services/:code/instances", get(list_instances))
+        .route("/api/services/:code/instances", post(register_instance))
+        .route("/api/discover/:code", get(discover_service))
         .route("/api/instances/:id/health", post(update_health))
+        .route("/api/identities", post(register_identity))
+        .route("/api/identities/:cn/roles", post(assign_role))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     tracing::info!("listening on {}", addr);
     
-    let server = axum::Server::bind(&addr)
+    axum::Server::bind(&addr)
         .serve(app.into_make_service())
-        .with_graceful_shutdown(shutdown_signal());
-
-    if let Err(e) = server.await {
-        tracing::error!("server error: {}", e);
-    }
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
 }
 
 async fn check_health(addr: &SocketAddr) -> HealthStatus {
@@ -317,6 +324,51 @@ async fn list_instances(
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
+struct RegisterInstanceRequest {
+    address: SocketAddr,
+    #[schema(example = "Http")]
+    protocol: logpose_core::protocol::Protocol,
+    #[schema(example = "Container")]
+    runtime: logpose_core::runtime::Runtime,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/services/{code}/instances",
+    request_body = RegisterInstanceRequest,
+    responses((status = 201, description = "Instance registered")),
+    params(("code" = String, Path, description = "Service code")),
+    security(("api_jwt" = []))
+)]
+async fn register_instance(
+    State(state): State<AppState>,
+    axum::extract::Extension(claims): axum::extract::Extension<Claims>,
+    Path(code): Path<String>,
+    Json(payload): Json<RegisterInstanceRequest>,
+) -> impl IntoResponse {
+    let has_permission = claims.roles.iter().any(|role| {
+        role.permissions().contains(&Permission::InstanceWrite)
+    });
+
+    if !has_permission {
+        return (StatusCode::FORBIDDEN, "Insufficient permissions").into_response();
+    }
+
+    let instance = logpose_core::ServiceInstance::new(
+        code,
+        payload.address,
+        payload.protocol,
+        payload.runtime,
+        logpose_core::time::now()
+    );
+
+    match state.registry.add_instance(&instance) {
+        Ok(_) => (StatusCode::CREATED, "Instance registered").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed").into_response(),
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
 struct HealthUpdate {
     status: HealthStatus,
 }
@@ -339,6 +391,77 @@ async fn update_health(
     };
     match state.registry.update_instance_health(&id, payload.status) {
         Ok(_) => (StatusCode::OK, "Updated").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed").into_response(),
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+struct RegisterIdentityRequest {
+    common_name: String,
+    organization: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/identities",
+    request_body = RegisterIdentityRequest,
+    responses((status = 201, description = "Identity created")),
+    security(("api_jwt" = []))
+)]
+async fn register_identity(
+    State(state): State<AppState>,
+    axum::extract::Extension(claims): axum::extract::Extension<Claims>,
+    Json(payload): Json<RegisterIdentityRequest>,
+) -> impl IntoResponse {
+    let has_permission = claims.roles.iter().any(|role| {
+        role.permissions().contains(&Permission::UserManage)
+    });
+
+    if !has_permission {
+        return (StatusCode::FORBIDDEN, "Insufficient permissions").into_response();
+    }
+
+    let identity = Identity {
+        common_name: payload.common_name,
+        organization: payload.organization,
+        roles: vec![Role::Viewer], // Default role
+    };
+
+    match state.registry.add_identity(&identity) {
+        Ok(_) => (StatusCode::CREATED, "Identity registered").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed").into_response(),
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+struct AssignRoleRequest {
+    role: Role,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/identities/{cn}/roles",
+    request_body = AssignRoleRequest,
+    responses((status = 200, description = "Role assigned")),
+    params(("cn" = String, Path, description = "Common Name")),
+    security(("api_jwt" = []))
+)]
+async fn assign_role(
+    State(state): State<AppState>,
+    axum::extract::Extension(claims): axum::extract::Extension<Claims>,
+    Path(cn): Path<String>,
+    Json(payload): Json<AssignRoleRequest>,
+) -> impl IntoResponse {
+    let has_permission = claims.roles.iter().any(|role| {
+        role.permissions().contains(&Permission::UserManage)
+    });
+
+    if !has_permission {
+        return (StatusCode::FORBIDDEN, "Insufficient permissions").into_response();
+    }
+
+    match state.registry.add_role_to_identity(&cn, payload.role) {
+        Ok(_) => (StatusCode::OK, "Role assigned").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed").into_response(),
     }
 }

@@ -282,4 +282,27 @@ impl RegistryStore for DbRegistry {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|_| RegistryError::ServiceNotFound)
     }
+
+    fn get_all_services(&self) -> Result<Vec<Service>, RegistryError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT name, code, description, metadata FROM services").map_err(|_| RegistryError::ServiceNotFound)?;
+        let rows = stmt.query_map([], |row| {
+            let name: String = row.get(0)?;
+            let code: String = row.get(1)?;
+            let description: String = row.get(2)?;
+            let metadata_json: String = row.get(3)?;
+            let metadata: std::collections::HashMap<String, String> = serde_json::from_str(&metadata_json).unwrap_or_default();
+
+            Ok(Service {
+                name,
+                code,
+                description,
+                instances: Vec::new(), // We could load instances too, but for listing, name/code is usually enough or we load them separately
+                metadata,
+            })
+        }).map_err(|_| RegistryError::ServiceNotFound)?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|_| RegistryError::ServiceNotFound)
+    }
 }

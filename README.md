@@ -14,8 +14,8 @@ LogPose is organized as a modular Rust workspace, ensuring separation of concern
 | `logpose-server` | The high-performance core registry server (Axum 0.6). |
 | `logpose-command` | Local administrative CLI for direct registry management. |
 | `logpose-core` | Shared domain models, traits, and common logic. |
-| `logpose-db` | SQLite storage implementation for persistence. |
-| `logpose-agent` | **[Coming Soon]** Intelligent agent for AI-native service discovery and MCP integration. |
+| `logpose-db` | SQLite storage implementation (Pluggable: MySQL/Postgres coming soon). |
+| `logpose-agent` | Intelligent AI agent providing MCP-native service discovery and orchestration. |
 
 ---
 

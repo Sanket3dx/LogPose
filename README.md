@@ -127,3 +127,23 @@ cargo run -p logpose-server
 ```bash
 cargo run -p logpose-command -- --help
 ```
+
+### Using the AI Agent (MCP)
+The `logpose-agent` implements the **Model Context Protocol (MCP)**, allowing AI models to interact with your service mesh.
+
+1. **Configure Agent**: Set `LOGPOSE_SERVER` and `LOGPOSE_TOKEN` in your environment.
+2. **Add to AI Client**: For Claude Desktop, add this to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "logpose": {
+      "command": "cargo",
+      "args": ["run", "-p", "logpose-agent", "--quiet"]
+    }
+  }
+}
+```
+3. **Ask AI**: Once connected, you can ask your AI:
+   - *"Which services are currently registered in LogPose?"*
+   - *"Find me a healthy instance for the 'billing-svc'."*
+   - *"Is the service mesh healthy right now?"*
